@@ -1,0 +1,270 @@
+#!/bin/bash
+
+# 
+# bashalytics
+# 
+# A bash utility for fetching reports from Google Analytics using the Core 
+# Reporting v3 API.
+#
+# Based on: http://adambuchanan.me/post/19993272813/google-analytics-api-bash-scripts
+# 
+
+# info
+tool=$(basename "$0")
+version='0.1'
+copyright='Copyright (c) 2014 Morgan Aldridge'
+
+# global variables
+verbose=false
+auth_token=''
+auth_token_file="${HOME}/.bashalytics/auth_token"
+
+# print usage instructions (help)
+function usage() {
+	echo "Usage: $tool [options]"
+	echo
+	echo 'Options:'
+	echo '  -h, --help      : print these usage instructions'
+	echo '  -v, --verbose   : verbose output'
+	echo '  -V, --version   : print the version'
+	echo
+	echo 'Commands:'
+	echo '  auth			: authenticate to Google Analytics'
+}
+
+# print version info
+function version() {
+	echo "$tool v$version $copyright"
+}
+
+function load_ga_auth_token() {
+	local success=true
+	
+	if $verbose; then echo -n "Loading auth token from '$auth_token_file'... "; fi
+
+	# does the auth token file exist?
+	if [ -f "$auth_token_file" ]; then
+		local line=''
+		auth_token=''
+		# read in the auth token file
+		while IFS= read -r line; do
+			# ignore empty lines
+			if [ -n "$line" ]; then
+				auth_token+=("$line")
+			fi
+		done < "$auth_token_file"
+	else
+		echo "ERROR! The auth token file '${auth_token_file}' was not found!" 1>&2
+		success=false
+	fi
+	
+	if $verbose; then
+		if $success; then
+			echo "Done."
+		else
+			echo "ERROR!"
+		fi
+	fi
+	
+	$success
+}
+
+function save_ga_auth_token() {
+	local success=true
+	
+	# create the directory, if necessary
+	local auth_token_path="$(dirname "$auth_token_file")"
+	if [ ! -d "$auth_token_path" ]; then
+		if $verbose; then echo -n "Creating '$auth_token_path'... "; fi
+		mkdir -p "$auth_token_path"
+		if [[ $? -gt 0 ]]; then
+			echo "ERROR! An unknown error occurred while creating '$auth_token_path'!" 1>&2
+			success=false
+		else
+			if $verbose; then echo "Done."; fi
+		fi
+	fi
+	
+	# is the auth token empty?
+	if [ -z "$auth_token" ]; then
+		echo "ERROR! Can't save an empty auth token!" 1>&2
+	else
+		# save the auth token
+		if $verbose; then echo -n "Saving auth token to '$auth_token_file'... "; fi
+		echo "$auth_token" > "$auth_token_file"
+		if [[ $? -gt 0 ]]; then
+			echo "ERROR! An unknown error occurred while saving the auth token to '${auth_token_file}'!" 1>&2
+			success=false
+		else
+			if $verbose; then echo "Done."; fi
+		fi
+		
+		# set permissions
+		if $verbose; then echo -n "Setting permissions on auth token file '${auth_token_file}'... "; fi
+		chmod -R 700 "$auth_token_path"
+		if [[ $? -gt 0 ]]; then
+			echo "ERROR! An unknown error occurred while setting permissions on the auth token file '${auth_token_file}'!" 1>&2
+			success=false
+		else
+			if $verbose; then echo "Done."; fi
+		fi
+	fi
+	
+	$success
+}
+
+function get_ga_auth_token() {
+	local success=true
+	local email="$1"
+	local password="$2"
+	
+	# get the Google Analytics auth token by username & password
+	local token="$(curl https://www.google.com/accounts/ClientLogin -s \
+	  -d "Email=$email" \
+	  -d "Passwd=$password" \
+	  -d accountType=GOOGLE \
+	  -d source=curl-accountFeed-v1 \
+	  -d service=analytics \
+	 | grep "Auth=" | cut -d"=" -f2)"
+	 if [[ ( $? -gt 0 ) || ( -z "$token" ) ]]; then
+	 	success=false
+	 else
+	 	auth_token="$token"
+	 fi
+	 
+	 $success
+}
+
+function fetch_ga_report() {
+	local profile="$1"
+	local start="$2"
+	local end="$3"
+	local dimensions="$4"
+	local metrics="$5"
+	local sort="$6"
+	
+	local feed="https://www.google.com/analytics/feeds/data\
+?start-date=$start\
+&end-date=$end\
+&dimensions=$dimensions\
+&metrics=$metrics\
+&sort=$sort\
+&max-results=10000\
+&ids=ga:$profile\
+&prettyprint=true"
+	curl "$feed" -s --header "Authorization: GoogleLogin auth=$googleAuth"
+}
+
+function auth() {
+	local success=true
+	local email=''
+	local password=''
+	
+	# prompt for email address & password to fetch auth file
+	echo "Please log into your Google Analytics account to fetch an auth token:"
+	read -p 'Email: ' email
+	read -sp 'Password: ' password
+	echo -n $'\n'"Fetching auth token from Google Analytics... "
+	
+	# fetch the token & save
+	if get_ga_auth_token "$email" "$password"; then
+		echo "Done."
+		save_ga_auth_token
+	else
+		echo "ERROR!"
+	fi
+	
+	$success
+}
+
+# see if any arguments were passed in
+if [ $# -gt 0 ]; then
+	# if so, step through them all and pre-process them (we do this so we can 
+	# support multiple options specified together, e.g.: -abc vs. -a -b -c),
+	# GNU-style long options with alternate style values, and for easier
+	# actual handling
+	argv=()
+	while [ $# -gt 0 ]; do
+		# is this an option (e.g. starts with a dash) or an argument?
+		if [ "${1:0:1}" = "-" ]; then
+			# is it a GNU-style long option (e.g. starts with a double-dash)?
+			if [ "${1:0:2}" = "--" ]; then
+				# push the option (everything before an equals) onto argv
+				argv=("${argv[@]}" "${1%%=*}")
+
+				# is it the alternate "--long-opt=value" format? if so, make it
+				# "--long-opt value" format buy pushing the value (everything after the
+				# equals) on as a separate argument
+				case "$1" in *=*)
+					argv=("${argv[@]}" "${1##*=}") ;;
+				esac
+			# otherwise, is it multiple single options specified together?
+			elif [ ${#1} -gt 2 ]; then
+				tmp="$1"
+				# push each onto argv as single options
+				for (( i=1; i < ${#tmp}; i++ )); do
+					argv=("${argv[@]}" "-${tmp:$i:1}")
+				done
+			# otherwise, it must be a single option so just push it onto argv
+			else
+				argv=("${argv[@]}" "$1")
+			fi
+			shift
+		# arguments just get pushed onto argv in order too
+		else
+			argv=("${argv[@]}" "$1")
+			shift
+		fi
+	done
+	argc=${#argv[@]}
+
+	# now that we've pre-processed the options, go through them all for real
+	for (( i=0; i<argc; i++ )); do
+		# is this an option (e.g. starts with a dash) or an argument?
+		if [ "${argv[$i]:0:1}" = "-" ]; then
+			case "${argv[$i]}" in
+				# see if the user intended us to run in verbose mode
+				"-v" | "--verbose")
+					verbose=true
+					;;
+				# see if the user requested help
+				"-h" | "--help")
+					usage
+					exit
+					;;
+				# see if the user requested the version
+				"-V" | "--version")
+					version
+					exit
+					;;
+				# handle other options
+
+				# unknown option
+				*)
+					echo "$tool: Unknown option '$1'!"
+					exit 1
+					;;
+			esac
+		# handle commands & arguments
+		else
+			case "${argv[$i]}" in
+				"auth")
+					if ! auth; then
+						exit 1
+					fi
+					;;
+				# handle other arguments here
+				
+				# unknown command/argument
+				*)
+					echo "$tool: Unknown command '$1'!"
+					exit 1
+					;;
+			esac
+		fi
+	done
+else
+	echo "No options or arguments were specified!"$'\n'
+	usage
+	exit 1
+fi
