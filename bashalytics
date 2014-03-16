@@ -8,8 +8,19 @@
 #
 # Based on: http://adambuchanan.me/post/19993272813/google-analytics-api-bash-scripts
 # 
-# See: https://developers.google.com/analytics/devguides/reporting/core/v3/
-#      https://developers.google.com/analytics/devguides/reporting/metadata/v3/
+# Reference: https://developers.google.com/analytics/devguides/reporting/core/v3/
+#            https://developers.google.com/analytics/devguides/reporting/metadata/v3/
+# 
+# CHANGE LOG:
+# 
+# v0.1   - 2014-03-16 - Morgan Aldridge <morgant@makkintosshu.com>
+#                       Initial development.
+# 
+# LICENSE:
+# 
+# Copyright (c) 2014, Morgan Aldridge. All rights reserved.
+# 
+# _TBD_
 # 
 
 shopt -s extglob
