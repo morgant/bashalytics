@@ -8,20 +8,35 @@
 #
 # Based on: http://adambuchanan.me/post/19993272813/google-analytics-api-bash-scripts
 # 
+# See: https://developers.google.com/analytics/devguides/reporting/core/v3/
+#      https://developers.google.com/analytics/devguides/reporting/metadata/v3/
+# 
+
+shopt -s extglob
 
 # info
 tool=$(basename "$0")
 version='0.1'
 copyright='Copyright (c) 2014 Morgan Aldridge'
+api_key='AIzaSyCvIN2JcsrCkVG6nH93GUS1omlVz1cX93Y'	# NOTE: this is specific to bashalytics and should not be used for anything else
 
 # global variables
 verbose=false
+command=''
 auth_token=''
 auth_token_file="${HOME}/.bashalytics/auth_token"
+ga_dimensions=()
+ga_metrics=()
+report_profile=''
+report_start_date=''
+report_end_date=''
+report_dimensions=()
+report_metrics=()
+report_sort_metric=''
 
 # print usage instructions (help)
 function usage() {
-	echo "Usage: $tool [options]"
+	echo "Usage: $tool [options] <command>"
 	echo
 	echo 'Options:'
 	echo '  -h, --help      : print these usage instructions'
@@ -29,12 +44,56 @@ function usage() {
 	echo '  -V, --version   : print the version'
 	echo
 	echo 'Commands:'
-	echo '  auth			: authenticate to Google Analytics'
+	echo '  auth            : authenticate to Google Analytics'
+	echo '  report <profile> <start_date> <end_date> <dimension> [...] <metric> [...]'
+	echo '                  : generate report for date range w/dimensions & metrics'
 }
 
 # print version info
 function version() {
 	echo "$tool v$version $copyright"
+}
+
+function in_array() {
+	local found=false
+	local value="$1"
+	shift
+
+	if [ -z "$value" ]; then $found; fi
+	if [ ${#@} -lt 1 ]; then $found; fi
+	for array_value in "$@"; do
+		if [ "$value" = "$array_value" ]; then found=true; fi
+	done
+
+	$found
+}
+
+function is_ga_dimension() {
+	local found=false
+	local value="$1"
+	shift
+
+	if [ -z "$value" ]; then $found; fi
+	if [ ${#@} -lt 1 ]; then $found; fi
+	for array_value in "${ga_dimensions[@]}"; do
+		if [[ "$array_value" =~ ^$value ]]; then found=true; fi
+	done
+
+	$found
+}
+
+function is_ga_metric() {
+	local found=false
+	local value="$1"
+	shift
+
+	if [ -z "$value" ]; then $found; fi
+	if [ ${#@} -lt 1 ]; then $found; fi
+	for array_value in "${ga_metrics[@]}"; do
+		if [[ "$array_value" =~ ^$value ]]; then found=true; fi
+	done
+
+	$found
 }
 
 function load_ga_auth_token() {
@@ -47,12 +106,7 @@ function load_ga_auth_token() {
 		local line=''
 		auth_token=''
 		# read in the auth token file
-		while IFS= read -r line; do
-			# ignore empty lines
-			if [ -n "$line" ]; then
-				auth_token+=("$line")
-			fi
-		done < "$auth_token_file"
+		IFS= read -r auth_token < "$auth_token_file"
 	else
 		echo "ERROR! The auth token file '${auth_token_file}' was not found!" 1>&2
 		success=false
@@ -119,7 +173,7 @@ function get_ga_auth_token() {
 	local password="$2"
 	
 	# get the Google Analytics auth token by username & password
-	local token="$(curl https://www.google.com/accounts/ClientLogin -s \
+	local token="$(curl -s https://www.google.com/accounts/ClientLogin -s \
 	  -d "Email=$email" \
 	  -d "Passwd=$password" \
 	  -d accountType=GOOGLE \
@@ -135,7 +189,71 @@ function get_ga_auth_token() {
 	 $success
 }
 
+function fetch_ga_columns() {
+	local success=true
+	local columns_json=''
+	
+	if $verbose; then echo -n "Fetching Google Analytics columns... "; fi
+	
+	# fetch the columns
+	columns_json="$(curl -s "https://www.googleapis.com/analytics/v3/metadata/ga/columns?prettyprint=true&key=$api_key")"
+	if [ $? -gt 0 ]; then
+		echo "ERROR! An unknown error occurred while fetching Google Analytics columns!" 1>&2
+		success=false
+	else
+		local column_id=''
+		local column_type=''
+		local column_data_type=''
+		local column_ui_name=''
+		local line=''
+		local i=0
+		# parse the columns into the ga_dimensions & ga_metrics arrays (format: a pipe-delimited string of "<column_name>|<descriptive_name>|<value_type>")
+		while IFS= read -r line; do
+			# get the item ID
+			if [[ "$line" =~ ^\[\"items\",([0-9]+),\"id\"\]\	\"(.+)\" ]]; then
+				if [ "${BASH_REMATCH[1]}" -gt "$i" ]; then
+					# save the column to the dimensions or metrics arrays
+					#if $verbose; then echo "${column_type}: ${column_id}|${column_ui_name}|${column_data_type}";fi
+					case "$column_type" in
+						"DIMENSION")
+							ga_dimensions+=("${column_id}|${column_ui_name}|${column_data_type}")
+							;;
+						"METRIC")
+							ga_metrics+=("${column_id}|${column_ui_name}|${column_data_type}")
+							;;
+					esac
+					
+					# reset the column variables
+					column_id=''
+					column_type=''
+					column_data_type=''
+					column_ui_name=''
+					
+					# update the column number counter
+					i="${BASH_REMATCH[1]}"
+				fi
+				
+				# set the new column ID
+				column_id="${BASH_REMATCH[2]}"
+			# get the item type
+			elif [[ "$line" =~ ^\[\"items\",[0-9]+,\"attributes\",\"type\"\]\	\"(.+)\" ]]; then
+				column_type="${BASH_REMATCH[1]}"
+			# get the data type
+			elif [[ "$line" =~ ^\[\"items\",[0-9]+,\"attributes\",\"dataType\"\]\	\"(.+)\" ]]; then
+				column_data_type="${BASH_REMATCH[1]}"
+			elif [[ "$line" =~ ^\[\"items\",[0-9]+,\"attributes\",\"uiName\"\]\	\"(.+)\" ]]; then
+				column_ui_name="${BASH_REMATCH[1]}"
+			fi
+			
+		done <<< "$(echo -e "$columns_json" | ./JSON.sh)"
+		if $verbose; then echo "Done."; fi
+	fi
+	
+	$success
+}
+
 function fetch_ga_report() {
+	local success=true
 	local profile="$1"
 	local start="$2"
 	local end="$3"
@@ -143,16 +261,65 @@ function fetch_ga_report() {
 	local metrics="$5"
 	local sort="$6"
 	
-	local feed="https://www.google.com/analytics/feeds/data\
+	if $verbose; then echo -n "Running report on profile $profile between $start & $end for metrics $metrics... "; fi
+	
+	# build the report URL
+	#local feed="https://www.googleapis.com/analytics/v2.4/data\
+	local feed="https://www.googleapis.com/analytics/v3/data/ga\
 ?start-date=$start\
 &end-date=$end\
 &dimensions=$dimensions\
 &metrics=$metrics\
-&sort=$sort\
 &max-results=10000\
 &ids=ga:$profile\
-&prettyprint=true"
-	curl "$feed" -s --header "Authorization: GoogleLogin auth=$googleAuth"
+&prettyPrint=true"
+	if [[ ! -z "$sort" ]]; then
+		sort="{$feed}&sort=$sort"
+	fi
+	
+	# run the report
+	local report_json="$(curl "$feed" -s --header "Authorization: GoogleLogin auth=$auth_token" --header "GData-Version: 2")"
+	if [ $? -gt 0 ]; then
+		echo "ERROR! An unknown error occurred while running report!" 1>&2
+		success=false
+	else
+		if $verbose; then echo "Done."; fi
+		
+		# parse the json and output TSV (tab separated values)
+		local columns=()
+		local row_num=-1
+		while IFS= read -r line; do
+			# get the column headers
+			if [[ "$line" =~ ^\[\"columnHeaders\",([0-9]+),\"name\"\]\	\"(.+)\" ]]; then
+				columns+=("${BASH_REMATCH[2]}")
+			# get the rows
+			elif [[ "$line" =~ ^\[\"rows\",([0-9]+),[0-9]+\]\	\"(.+)\" ]]; then
+				# have we just transitioned to a new row?
+				if [ "$row_num" -lt "${BASH_REMATCH[1]}" ]; then
+					# print the previous row columns (tab separated)
+					local column=''
+					for column in "${columns[@]}"; do
+						echo -n "$column"$'\t'
+					done
+					echo
+					
+					# reset the columns array & row counter
+					columns=()
+					row_num="${BASH_REMATCH[1]}"
+				fi
+				
+				# add the new column value
+				columns+=("${BASH_REMATCH[2]}")
+			fi
+		done <<< "$(echo -e "$report_json" | ./JSON.sh)"
+		# print the final row
+		for column in "${columns[@]}"; do
+			echo -n "$column"$'\t'
+		done
+		echo
+	fi
+	
+	$success
 }
 
 function auth() {
@@ -248,12 +415,66 @@ if [ $# -gt 0 ]; then
 		# handle commands & arguments
 		else
 			case "${argv[$i]}" in
+				# handle other arguments here
+				# did the user request to authenticate and generate an auth token?
 				"auth")
-					if ! auth; then
+					command="auth"
+					;;
+				# did the user request to generate a report?
+				"report")
+					command="report"
+					
+					# load the auth token
+					if ! load_ga_auth_token; then
+						exit 1
+					fi
+					# fetch columns
+					if ! fetch_ga_columns; then
 						exit 1
 					fi
 					;;
-				# handle other arguments here
+				# did the user specify a number (we'll assume it's a profile ID)
+				+([0-9]))
+					if [[ "$command" = "report" ]]; then
+						report_profile="${argv[$i]}"
+					else
+						echo "ERROR! Unexpected Profile ID '${argv[$i]}'!" 1>&2
+						exit 1
+					fi
+					;;
+				# did the user specify a date range (YYYY-MM-DD-YYYY-MM-DD)
+				+([0-9])-+([0-9])-+([0-9]))
+					if [[ "$command" = "report" ]]; then
+						if [[ -z "$report_start_date" ]]; then
+							report_start_date="${argv[$i]}"
+						elif [[ -z "$report_end_date" ]]; then
+							report_end_date="${argv[$i]}"
+						else
+							echo "ERROR! Unexpected date '${argv[$i]}'!" 1>&2
+							exit 1
+						fi
+					else
+						echo "ERROR! Unexpected date '${argv[$i]}'!" 1>&2
+						exit 1
+					fi
+					;;
+				# did the user specify a dimension or metric?
+				ga:*)
+					if [[ "$command" = "report" ]]; then
+						if is_ga_dimension "${argv[$i]}"; then
+							report_dimensions+=("${argv[$i]}")
+						elif is_ga_metric "${argv[$i]}"; then
+							report_metrics+=("${argv[$i]}")
+						else
+							echo "ERROR! Invalid dimension or metric '${argv[$i]}'!" 1>&2
+							exit 1
+						fi
+					else
+						echo "ERROR! Unexpected dimension or metric '${argv[$i]}'!" 1>&2
+						exit 1
+					fi
+					
+					;;
 				
 				# unknown command/argument
 				*)
@@ -263,6 +484,25 @@ if [ $# -gt 0 ]; then
 			esac
 		fi
 	done
+	
+	# run the any applicable commands that were parsed
+	case "$command" in
+		"auth")
+			# authenticate the user
+			if ! auth; then
+				exit 1
+			fi
+			;;
+		"report")
+			# build the list of dimensions & metrics
+			IFS=, report_dimensions_list="${report_dimensions[@]}"
+			IFS=, report_metrics_list="${report_metrics[@]}"
+			# run the report
+			if ! fetch_ga_report "$report_profile" "$report_start_date" "$report_end_date" "$report_dimensions_list" "$report_metrics_list" "$report_sort_metric"; then
+				echo "ERROR!" 1>&2
+			fi
+			;;
+	esac
 else
 	echo "No options or arguments were specified!"$'\n'
 	usage
