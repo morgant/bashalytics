@@ -6,10 +6,17 @@ by Morgan Aldridge <morgant@makkintosshu.com>
 OVERVIEW
 --------
 
-A bash utility for fetching reports from Google Analytics using the Core Reporting v3 API.
+A bash utility for fetching reports from Google Analytics using the Core Reporting v3 API. Also makes it easy to authenticate & save auth token.
 
 _Currently under development._
 
+TO-DO
+-----
+
+* Cache fetched metrics & dimensions
+* Add command to list metrics & dimensions
+* An option to override auth token (saving & reading) to support multiple accounts
+* Is there a way to look up & list Profile IDs?
 
 ACKNOWLEDGEMENTS
 ----------------
