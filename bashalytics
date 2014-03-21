@@ -38,6 +38,8 @@ auth_token=''
 auth_token_file="${HOME}/.bashalytics/auth_token"
 ga_dimensions=()
 ga_metrics=()
+ga_dimensions_file="${HOME}/.bashalytics/dimensions"
+ga_metrics_file="${HOME}/.bashalytics/metrics"
 report_profile=''
 report_start_date=''
 report_end_date=''
@@ -200,64 +202,209 @@ function get_ga_auth_token() {
 	 $success
 }
 
+function load_ga_columns() {
+	local success=true
+	
+	# load the dimensions
+	if $verbose; then echo -n "Loading Google Analytics dimensions from '$ga_dimensions_file'... "; fi
+	# does the dimensions file exist?
+	if [ -f "$ga_dimensions_file" ]; then
+		local line=''
+		# read in the dimensions file
+		while IFS= read -r line || [ -n "$line" ]; do
+			ga_dimensions+=("$line")
+		done < "$ga_dimensions_file"
+	else
+		echo "ERROR! The Google Analytics dimensions file '${ga_dimensions_file}' was not found!" 1>&2
+		success=false
+	fi
+	if $verbose; then
+		if $success; then
+			echo "Done."
+		else
+			echo "ERROR!"
+		fi
+	fi
+	
+	# load the metrics
+	if $verbose; then echo -n "Loading Google Analytics metrics from '$ga_metrics_file'... "; fi
+	# does the metrics file exist?
+	if [ -f "$ga_metrics_file" ]; then
+		local line=''
+		# read in the metrics file
+		while IFS= read -r line || [ -n "$line" ]; do
+			ga_metrics+=("$line")
+		done < "$ga_metrics_file"
+	else
+		echo "ERROR! The Google Analytics metrics file '${ga_metrics_file}' was not found!" 1>&2
+		success=false
+	fi
+	if $verbose; then
+		if $success; then
+			echo "Done."
+		else
+			echo "ERROR!"
+		fi
+	fi
+	
+	$success
+}
+
+function save_ga_columns() {
+	local success=true
+	
+	# create the directories, if necessary
+	local dimensions_path="$(dirname "$ga_dimensions_file")"
+	local metrics_path="$(dirname "$ga_metrics_file")"
+	if [ ! -d "$dimensions_path" ]; then
+		if $verbose; then echo -n "Creating '$dimensions_path'... "; fi
+		mkdir -p "$dimensions_path"
+		if [[ $? -gt 0 ]]; then
+			echo "ERROR! An unknown error occurred while creating '$dimensions_path'!" 1>&2
+			success=false
+		else
+			if $verbose; then echo "Done."; fi
+		fi
+	fi
+	if [ ! -d "$metrics_path" ]; then
+		if $verbose; then echo -n "Creating '$metrics_path'... "; fi
+		mkdir -p "$metrics_path"
+		if [[ $? -gt 0 ]]; then
+			echo "ERROR! An unknown error occurred while creating '$metrics_path'!" 1>&2
+			success=false
+		else
+			if $verbose; then echo "Done."; fi
+		fi
+	fi
+	
+	# are the dimensions or metrics arrays empty?
+	if [[ ( "${#ga_dimensions[@]}" < 1 ) || ( "${#ga_metrics[@]}" < 1 ) ]]; then
+		echo "ERROR! Can't save an empty dimensions or metrics lists!" 1>&2
+	else
+		# delete the existing dimensions & metrics files, if necessary
+		if [ -f "$ga_dimensions_file" ]; then
+			if $verbose; then echo -n "Removing old Google Analytics dimensions file '$ga_dimensions_file'... "; fi
+			rm "$ga_dimensions_file"
+			if $verbose; then echo "Done."; fi
+		fi
+		if [ -f "$ga_metrics_file" ]; then
+			if $verbose; then echo -n "Removing old Google Analytics metrics file '$ga_metrics_file'... "; fi
+			rm "$ga_metrics_file"
+			if $verbose; then echo "Done."; fi
+		fi
+		
+		# save the dimensions
+		if $verbose; then echo -n "Saving Google Analytics dimensions to '$ga_dimensions_file'... "; fi
+		local dimension=''
+		for dimension in "${ga_dimensions[@]}"; do
+			echo "$dimension"
+		done >  "$ga_dimensions_file"
+		if [[ $? -gt 0 ]]; then
+			echo "ERROR! An unknown error occurred while saving the Google Analytics dimensions to '${ga_dimensions_file}'!" 1>&2
+			success=false
+		else
+			if $verbose; then echo "Done."; fi
+		fi
+		
+		# save the metrics
+		if $verbose; then echo -n "Saving Google Analytics metrics to '$ga_metrics_file'... "; fi
+		local metrics=''
+		for metric in "${ga_metrics[@]}"; do
+			echo "$metric"
+		done >  "$ga_metrics_file"
+		if [[ $? -gt 0 ]]; then
+			echo "ERROR! An unknown error occurred while saving the Google Analytics metrics to '${ga_metrics_file}'!" 1>&2
+			success=false
+		else
+			if $verbose; then echo "Done."; fi
+		fi
+	fi
+	
+	$success
+}
+
 function fetch_ga_columns() {
 	local success=true
 	local columns_json=''
 	
-	if $verbose; then echo -n "Fetching Google Analytics columns... "; fi
+	# can we load from the local saved cache or do we need to fetch from Google?
+	local load_from_cache=true
+	local today_seconds="$(date -j -f "%H:%M:%S" "+%s" "00:00:00")"
+	local dimension_file_mtime="$(stat -f "%c" "$ga_dimensions_file" 2>/dev/null)"
+	if [[ ( $? -gt 0 ) || ( "$dimension_file_mtime" -lt "$today_seconds" ) ]]; then
+		load_from_cache=false
+	fi
+	local metrics_file_mtime="$(stat -f "%c" "$ga_metrics_file" 2>/dev/null)"
+	if [[ ( $? -gt 0 ) || ( "metrics_file_mtime" -lt "$today_seconds" ) ]]; then
+		load_from_cache=false
+	fi
 	
-	# fetch the columns
-	columns_json="$(curl -s "https://www.googleapis.com/analytics/v3/metadata/ga/columns?prettyprint=true&key=$api_key")"
-	if [ $? -gt 0 ]; then
-		echo "ERROR! An unknown error occurred while fetching Google Analytics columns!" 1>&2
-		success=false
+	# load from our cache
+	if $load_from_cache; then
+		if ! load_ga_columns; then
+			success=false
+		fi
+	# otherwise fetch from google
 	else
-		local column_id=''
-		local column_type=''
-		local column_data_type=''
-		local column_ui_name=''
-		local line=''
-		local i=0
-		# parse the columns into the ga_dimensions & ga_metrics arrays (format: a pipe-delimited string of "<column_name>|<descriptive_name>|<value_type>")
-		while IFS= read -r line; do
-			# get the item ID
-			if [[ "$line" =~ ^\[\"items\",([0-9]+),\"id\"\]\	\"(.+)\" ]]; then
-				if [ "${BASH_REMATCH[1]}" -gt "$i" ]; then
-					# save the column to the dimensions or metrics arrays
-					#if $verbose; then echo "${column_type}: ${column_id}|${column_ui_name}|${column_data_type}";fi
-					case "$column_type" in
-						"DIMENSION")
-							ga_dimensions+=("${column_id}|${column_ui_name}|${column_data_type}")
-							;;
-						"METRIC")
-							ga_metrics+=("${column_id}|${column_ui_name}|${column_data_type}")
-							;;
-					esac
+		if $verbose; then echo -n "Fetching Google Analytics columns... "; fi
+		
+		# fetch the columns
+		columns_json="$(curl -s "https://www.googleapis.com/analytics/v3/metadata/ga/columns?prettyprint=true&key=$api_key")"
+		if [ $? -gt 0 ]; then
+			echo "ERROR! An unknown error occurred while fetching Google Analytics columns!" 1>&2
+			success=false
+		else
+			local column_id=''
+			local column_type=''
+			local column_data_type=''
+			local column_ui_name=''
+			local line=''
+			local i=0
+			# parse the columns into the ga_dimensions & ga_metrics arrays (format: a pipe-delimited string of "<column_name>|<descriptive_name>|<value_type>")
+			while IFS= read -r line; do
+				# get the item ID
+				if [[ "$line" =~ ^\[\"items\",([0-9]+),\"id\"\]\	\"(.+)\" ]]; then
+					if [ "${BASH_REMATCH[1]}" -gt "$i" ]; then
+						# save the column to the dimensions or metrics arrays
+						#if $verbose; then echo "${column_type}: ${column_id}|${column_ui_name}|${column_data_type}";fi
+						case "$column_type" in
+							"DIMENSION")
+								ga_dimensions+=("${column_id}|${column_ui_name}|${column_data_type}")
+								;;
+							"METRIC")
+								ga_metrics+=("${column_id}|${column_ui_name}|${column_data_type}")
+								;;
+						esac
+						
+						# reset the column variables
+						column_id=''
+						column_type=''
+						column_data_type=''
+						column_ui_name=''
+						
+						# update the column number counter
+						i="${BASH_REMATCH[1]}"
+					fi
 					
-					# reset the column variables
-					column_id=''
-					column_type=''
-					column_data_type=''
-					column_ui_name=''
-					
-					# update the column number counter
-					i="${BASH_REMATCH[1]}"
+					# set the new column ID
+					column_id="${BASH_REMATCH[2]}"
+				# get the item type
+				elif [[ "$line" =~ ^\[\"items\",[0-9]+,\"attributes\",\"type\"\]\	\"(.+)\" ]]; then
+					column_type="${BASH_REMATCH[1]}"
+				# get the data type
+				elif [[ "$line" =~ ^\[\"items\",[0-9]+,\"attributes\",\"dataType\"\]\	\"(.+)\" ]]; then
+					column_data_type="${BASH_REMATCH[1]}"
+				elif [[ "$line" =~ ^\[\"items\",[0-9]+,\"attributes\",\"uiName\"\]\	\"(.+)\" ]]; then
+					column_ui_name="${BASH_REMATCH[1]}"
 				fi
-				
-				# set the new column ID
-				column_id="${BASH_REMATCH[2]}"
-			# get the item type
-			elif [[ "$line" =~ ^\[\"items\",[0-9]+,\"attributes\",\"type\"\]\	\"(.+)\" ]]; then
-				column_type="${BASH_REMATCH[1]}"
-			# get the data type
-			elif [[ "$line" =~ ^\[\"items\",[0-9]+,\"attributes\",\"dataType\"\]\	\"(.+)\" ]]; then
-				column_data_type="${BASH_REMATCH[1]}"
-			elif [[ "$line" =~ ^\[\"items\",[0-9]+,\"attributes\",\"uiName\"\]\	\"(.+)\" ]]; then
-				column_ui_name="${BASH_REMATCH[1]}"
-			fi
+			done <<< "$(echo -e "$columns_json" | ./JSON.sh)"
+			if $verbose; then echo "Done."; fi
 			
-		done <<< "$(echo -e "$columns_json" | ./JSON.sh)"
-		if $verbose; then echo "Done."; fi
+			# cache the columns locally to improve performance
+			if ! save_ga_columns; then
+				success=false
+			fi
+		fi
 	fi
 	
 	$success

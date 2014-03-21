@@ -13,7 +13,6 @@ _Currently under development._
 TO-DO
 -----
 
-* Cache fetched metrics & dimensions
 * Add command to list metrics & dimensions
 * An option to override auth token (saving & reading) to support multiple accounts
 * Is there a way to look up & list Profile IDs?
