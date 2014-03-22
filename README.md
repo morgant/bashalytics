@@ -6,9 +6,26 @@ by Morgan Aldridge <morgant@makkintosshu.com>
 OVERVIEW
 --------
 
-A bash utility for fetching reports from Google Analytics using the Core Reporting v3 API. Also makes it easy to authenticate & save auth token.
+A bash utility for fetching reports from Google Analytics using the Core Reporting v3 API. Also makes it easy to authenticate & cache an auth token as well as fetching & caching the list of dimensions & metrics.
 
-_Currently under development._
+_While functional, this tool is currently under early development._
+
+USAGE
+-----
+
+First, authenticate to Google Analytics (this will store an auth token in ~/.bashalytics/auth_token):
+
+    bashalyrics auth
+
+You can run reports as follows (specifying the profile ID, followed by the start & end dates, followed by a list of dimensions & metrics):
+
+    bashalytics report <profile_id> 2014-01-01 2014-01-10 ga:visits
+
+It will output the report in TSV (tab separated values) format, with the first row specifying the column names as the dimensions & metrics that were specified, and the following row(s) containing the respective values. (Note: dimensions and metrics are fetched and cached locally once per day when running reports.)
+
+Naturally, you can get further usage istructions as follows:
+
+    Bashalytics -h
 
 TO-DO
 -----
