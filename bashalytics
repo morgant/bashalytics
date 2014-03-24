@@ -45,7 +45,7 @@ report_start_date=''
 report_end_date=''
 report_dimensions=()
 report_metrics=()
-report_sort_metric=''
+report_sort=''
 
 # print usage instructions (help)
 function usage() {
@@ -55,11 +55,13 @@ function usage() {
 	echo '  -h, --help      : print these usage instructions'
 	echo '  -v, --verbose   : verbose output'
 	echo '  -V, --version   : print the version'
+	echo '  --sort          : sort report by specified dimension or metric'
 	echo
 	echo 'Commands:'
 	echo '  auth            : authenticate to Google Analytics'
 	echo '  report <profile> <start_date> <end_date> <dimension> [...] <metric> [...]'
 	echo '                  : generate report for date range w/dimensions & metrics'
+	echo
 }
 
 # print version info
@@ -419,7 +421,7 @@ function fetch_ga_report() {
 	local metrics="$5"
 	local sort="$6"
 	
-	if $verbose; then echo -n "Running report on profile $profile between $start & $end for metrics $metrics... "; fi
+	if $verbose; then echo -n "Running report on profile $profile between $start & $end for dimension(s) '$dimensions' and metric(s) '$metrics'... "; fi
 	
 	# build the report URL
 	#local feed="https://www.googleapis.com/analytics/v2.4/data\
@@ -431,8 +433,8 @@ function fetch_ga_report() {
 &max-results=10000\
 &ids=ga:$profile\
 &prettyPrint=true"
-	if [[ ! -z "$sort" ]]; then
-		sort="{$feed}&sort=$sort"
+	if [ ! -z "$sort" ]; then
+		feed="{$feed}&sort=$sort"
 	fi
 	
 	# run the report
@@ -562,6 +564,11 @@ if [ $# -gt 0 ]; then
 					version
 					exit
 					;;
+				# see if the user requested to sort the report data
+				"--sort")
+					report_sort="${argv[$i+1]}"
+					(( i++ ))
+					;;
 				# handle other options
 
 				# unknown option
@@ -656,7 +663,7 @@ if [ $# -gt 0 ]; then
 			IFS=, report_dimensions_list="${report_dimensions[@]}"
 			IFS=, report_metrics_list="${report_metrics[@]}"
 			# run the report
-			if ! fetch_ga_report "$report_profile" "$report_start_date" "$report_end_date" "$report_dimensions_list" "$report_metrics_list" "$report_sort_metric"; then
+			if ! fetch_ga_report "$report_profile" "$report_start_date" "$report_end_date" "$report_dimensions_list" "$report_metrics_list" "$report_sort"; then
 				echo "ERROR!" 1>&2
 			fi
 			;;
