@@ -91,7 +91,7 @@ function is_ga_dimension() {
 	if [ -z "$value" ]; then $found; fi
 	if [ ${#@} -lt 1 ]; then $found; fi
 	for array_value in "${ga_dimensions[@]}"; do
-		if [[ "$array_value" =~ ^$value ]]; then found=true; fi
+		if [[ "$array_value" =~ ^$value\| ]]; then found=true; fi
 	done
 
 	$found
@@ -105,7 +105,7 @@ function is_ga_metric() {
 	if [ -z "$value" ]; then $found; fi
 	if [ ${#@} -lt 1 ]; then $found; fi
 	for array_value in "${ga_metrics[@]}"; do
-		if [[ "$array_value" =~ ^$value ]]; then found=true; fi
+		if [[ "$array_value" =~ ^$value\| ]]; then found=true; fi
 	done
 
 	$found
