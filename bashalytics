@@ -660,8 +660,9 @@ if [ $# -gt 0 ]; then
 			;;
 		"report")
 			# build the list of dimensions & metrics
-			IFS=, report_dimensions_list="${report_dimensions[@]}"
-			IFS=, report_metrics_list="${report_metrics[@]}"
+			IFS=, report_dimensions_list="${report_dimensions[*]}"
+			IFS=, report_metrics_list="${report_metrics[*]}"
+			
 			# run the report
 			if ! fetch_ga_report "$report_profile" "$report_start_date" "$report_end_date" "$report_dimensions_list" "$report_metrics_list" "$report_sort"; then
 				echo "ERROR!" 1>&2
