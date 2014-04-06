@@ -434,7 +434,7 @@ function fetch_ga_report() {
 &ids=ga:$profile\
 &prettyPrint=true"
 	if [ ! -z "$sort" ]; then
-		feed="{$feed}&sort=$sort"
+		feed="${feed}&sort=$sort"
 	fi
 	
 	# run the report
