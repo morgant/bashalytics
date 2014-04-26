@@ -15,7 +15,7 @@ USAGE
 
 First, authenticate to Google Analytics (this will store an auth token in ~/.bashalytics/auth_token):
 
-    bashalyrics auth
+    bashalytics auth
 
 You can run reports as follows (specifying the profile ID, followed by the start & end dates, followed by a list of dimensions & metrics):
 
@@ -23,9 +23,9 @@ You can run reports as follows (specifying the profile ID, followed by the start
 
 It will output the report in TSV (tab separated values) format, with the first row specifying the column names as the dimensions & metrics that were specified, and the following row(s) containing the respective values. (Note: dimensions and metrics are fetched and cached locally once per day when running reports.)
 
-Naturally, you can get further usage istructions as follows:
+Naturally, you can get further usage instructions as follows:
 
-    Bashalytics -h
+    bashalytics -h
 
 TO-DO
 -----
