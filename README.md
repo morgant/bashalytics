@@ -30,7 +30,6 @@ Naturally, you can get further usage instructions as follows:
 TO-DO
 -----
 
-* Add command to list metrics & dimensions
 * An option to override auth token (saving & reading) to support multiple accounts
 * Is there a way to look up & list Profile IDs?
 
