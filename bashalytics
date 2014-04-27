@@ -59,6 +59,7 @@ function usage() {
 	echo
 	echo 'Commands:'
 	echo '  auth            : authenticate to Google Analytics'
+	echo '  list            : list dimensions & metrics'
 	echo '  report <profile> <start_date> <end_date> <dimension> [...] <metric> [...]'
 	echo '                  : generate report for date range w/dimensions & metrics'
 	echo
@@ -412,6 +413,26 @@ function fetch_ga_columns() {
 	$success
 }
 
+function print_ga_columns() {
+	# print the GA dimensions
+	echo 'Dimensions:'$'\n'
+	for array_value in "${ga_dimensions[@]}"; do
+		local name="$(cut -d '|' -f 1 <<< "$array_value")"
+		local type="$(cut -d '|' -f 3 <<< "$array_value")"
+		local description="$(cut -d '|' -f 2 <<< "$array_value")"
+		printf "%-34s  %-8s  %s\n" "$name" "$type" "$description"
+	done
+	
+	# print the GA metrics
+	echo $'\n''Metrics:'$'\n'
+	for array_value in "${ga_metrics[@]}"; do
+		local name="$(cut -d '|' -f 1 <<< "$array_value")"
+		local type="$(cut -d '|' -f 3 <<< "$array_value")"
+		local description="$(cut -d '|' -f 2 <<< "$array_value")"
+		printf "%-34s  %-8s  %s\n" "$name" "$type" "$description"
+	done
+}
+
 function fetch_ga_report() {
 	local success=true
 	local profile="$1"
@@ -598,6 +619,15 @@ if [ $# -gt 0 ]; then
 						exit 1
 					fi
 					;;
+				# did the user request to list metrics & dimensions?
+				"list")
+					command="list"
+					
+					# fetch columns
+					if ! fetch_ga_columns; then
+						exit 1
+					fi
+					;;
 				# did the user specify a number (we'll assume it's a profile ID)
 				+([0-9]))
 					if [[ "$command" = "report" ]]; then
@@ -657,6 +687,9 @@ if [ $# -gt 0 ]; then
 			if ! auth; then
 				exit 1
 			fi
+			;;
+		"list")
+			print_ga_columns
 			;;
 		"report")
 			# build the list of dimensions & metrics
