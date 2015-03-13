@@ -1,0 +1,12 @@
+#!/bin/bash
+
+tmp="/tmp/bashalytics-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$tmp"
+cd "$tmp"
+curl -k -# -O https://raw.githubusercontent.com/dominictarr/JSON.sh/master/JSON.sh
+install JSON.sh /usr/local/bin/
+cd - > /dev/null
+rm -r "$tmp"
+
+install bashalytics /usr/local/bin
+
