@@ -10,6 +10,13 @@ A bash utility for fetching reports from Google Analytics using the Core Reporti
 
 _While functional, this tool is currently under early development._
 
+	INSTALLATION
+------------
+
+Running the following command will install both bashalytics and the required JSON.sh in /usr/local/bin/:
+
+	./install
+
 USAGE
 -----
 
